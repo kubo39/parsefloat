@@ -1,0 +1,5 @@
+name "parsefloat"
+description "Eisel-Lemire float parsing algorithm."
+authors "Hiroki Noda"
+copyright "Copyright © 2022, Hiroki Noda"
+license "BSL-1.0"

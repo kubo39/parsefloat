@@ -1,0 +1,15 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/parsefloat
+parsefloat.so
+parsefloat.dylib
+parsefloat.dll
+parsefloat.a
+parsefloat.lib
+parsefloat-test-*
+*.exe
+*.o
+*.obj
+*.lst
