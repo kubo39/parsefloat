@@ -1,0 +1,15 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/test_all_fxx_data
+test_all_fxx_data.so
+test_all_fxx_data.dylib
+test_all_fxx_data.dll
+test_all_fxx_data.a
+test_all_fxx_data.lib
+test_all_fxx_data-test-*
+*.exe
+*.o
+*.obj
+*.lst

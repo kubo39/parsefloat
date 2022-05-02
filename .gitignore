@@ -3,11 +3,11 @@ docs.json
 __dummy.html
 docs/
 /parsefloat
-parsefloat.so
-parsefloat.dylib
-parsefloat.dll
-parsefloat.a
-parsefloat.lib
+libparsefloat.so
+libparsefloat.dylib
+libparsefloat.dll
+libparsefloat.a
+libparsefloat.lib
 parsefloat-test-*
 *.exe
 *.o

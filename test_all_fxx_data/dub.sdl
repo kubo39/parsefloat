@@ -1,0 +1,6 @@
+name "test_all_fxx_data"
+description "testing parse-number-fxx-test-data"
+authors "Hiroki Noda"
+copyright "Copyright © 2022, Hiroki Noda"
+license "BSL-1.0"
+dependency "parsefloat" path="../"
