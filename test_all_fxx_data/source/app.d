@@ -4,8 +4,8 @@ import std.file;
 import std.path;
 import std.stdio;
 
-// import std.conv;
-import parsefloat;
+import std.conv;
+//import parsefloat;
 
 // f16 f32 f64 string_repr
 struct TestCase
@@ -70,14 +70,21 @@ void main()
                 continue;
 
             auto failure = false;
-            scanLine(line, tc);
+            import std.exception;
+            try scanLine(line, tc);
+            catch (Exception)
+            {
+                fail++;
+                count++;
+                continue;
+            }
 
             // f32bits
             string s = tc.floatString;
             double f32result = parse!float(s);
             if (tc.f32bits != f32result)
             {
-                stderr.writefln(" | float: %s, found %f", line, f32result);
+                // stderr.writefln(" | float: %s, found %f", line, f32result);
                 failure = true;
             }
 
@@ -86,7 +93,7 @@ void main()
             double f64result = parse!double(s);
             if (tc.f64bits != f64result)
             {
-                stderr.writefln(" | double: %s, found %f", line, f64result);
+                // stderr.writefln(" | double: %s, found %f", line, f64result);
                 failure = true;
             }
 
@@ -94,5 +101,5 @@ void main()
             count++;
         }
     }
-    stderr.writeln("%d/%d succeeded (%d fail)", count - fail, count, fail);
+    stderr.writefln("%d/%d succeeded (%d fail)", count - fail, count, fail);
 }
