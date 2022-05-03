@@ -3,6 +3,7 @@
 import std.file;
 import std.path;
 import std.stdio;
+import std.conv : ConvException;
 
 //import std.conv;
 import parsefloat;
@@ -92,6 +93,13 @@ void main()
                     stderr.writefln(" | double: %s, found %f", line, f64result);
                     failure = true;
                 }
+            }
+            catch (ConvException)
+            {
+                stderr.writefln(" | range error: %s", line);
+                fail++;
+                count++;
+                continue;
             }
             catch (Exception)
             {
