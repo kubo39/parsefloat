@@ -28,7 +28,11 @@ private import parsefloat.lemire;
  *     parsed, or if an overflow occurred.
  */
 auto parse(Target, Source, Flag!"doCount" doCount = No.doCount)(ref Source source)
-if (isInputRange!Source && isSomeChar!(ElementType!Source) && !is(Source == enum) && isFloatingPoint!Target && !is(Target == enum))
+if (isInputRange!Source &&
+    isSomeChar!(ElementType!Source) &&
+    !is(Source == enum) &&
+    (is(Target == double) || is(Target == float)) &&
+    !is(Target == enum))
 {
     import std.ascii : isDigit, isAlpha, toLower, toUpper, isHexDigit;
     import std.exception : enforce;
@@ -303,42 +307,39 @@ if (isInputRange!Source && isSomeChar!(ElementType!Source) && !is(Source == enum
         enforce(sawDigits, new ConvException("No digits seen."));
     }
 
-    static if (is(Target == double) || is(Target == float))
+    // If significant digits were truncated, then we can have rounding error
+    // only if `mantissa + 1` produces a different result. We also avoid
+    // redundantly using the Eisel-Lemire algorithm if it was unable to
+    // correctly round on the first pass.
+    auto fp = eiselLemire!(Target)(exp, msdec);
+    if (nDigits > 19 && fp.e >= 0 && fp != eiselLemire!(Target)(exp, msdec + 1))
     {
-        // If significant digits were truncated, then we can have rounding error
-        // only if `mantissa + 1` produces a different result. We also avoid
-        // redundantly using the Eisel-Lemire algorithm if it was unable to
-        // correctly round on the first pass.
-        auto fp = eiselLemire!(Target)(exp, msdec);
-        if (nDigits > 19 && fp.e >= 0 && fp != eiselLemire!(Target)(exp, msdec + 1))
+        fp.e = -1;
+    }
+    // Unable to correctly round the float using the Eisel-Lemire algorithm.
+    if (fp.e < 0) {}
+    else
+    {
+        /// Converts a `BiasedFp` to the closest machine float type.
+        static if (is(Target == double))
         {
-            fp.e = -1;
+            size_t MANTISSA_EXPLICIT_BITS = 52;
         }
-        // Unable to correctly round the float using the Eisel-Lemire algorithm.
-        if (fp.e < 0) {}
+        else static if (is(Target == float))
+        {
+            size_t MANTISSA_EXPLICIT_BITS = 23;
+        }
+        auto word = fp.f;
+        word |= cast(ulong)(fp.e) << MANTISSA_EXPLICIT_BITS;
+        Target f = *cast(Target*) &word;
+
+        static if (doCount)
+        {
+            return tuple!("data", "count")(cast(Target) (sign ? -f : f), count);
+        }
         else
         {
-            /// Converts a `BiasedFp` to the closest machine float type.
-            static if (is(Target == double))
-            {
-                size_t MANTISSA_EXPLICIT_BITS = 52;
-            }
-            else static if (is(Target == float))
-            {
-                size_t MANTISSA_EXPLICIT_BITS = 23;
-            }
-            auto word = fp.f;
-            word |= cast(ulong)(fp.e) << MANTISSA_EXPLICIT_BITS;
-            Target f = *cast(Target*) &word;
-
-            static if (doCount)
-            {
-                return tuple!("data", "count")(cast(Target) (sign ? -f : f), count);
-            }
-            else
-            {
-                return cast(Target) (sign ? -f : f);
-            }
+            return cast(Target) (sign ? -f : f);
         }
     }
 
