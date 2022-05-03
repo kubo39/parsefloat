@@ -4,8 +4,8 @@ import std.file;
 import std.path;
 import std.stdio;
 
-import std.conv;
-//import parsefloat;
+//import std.conv;
+import parsefloat;
 
 // f16 f32 f64 string_repr
 struct TestCase
@@ -21,10 +21,8 @@ void scanLine(string line, ref TestCase testcase)
     import std.string : split;
 
     auto arr = line.split(' ');
-    float word1 = std.conv.parse!float(arr[1]);
-    testcase.f32bits = *cast(uint*) &word1;
-    double word2 = std.conv.parse!double(arr[2]);
-    testcase.f64bits = *cast(ulong*) &word2;
+    testcase.f32bits = std.conv.to!uint(arr[1], 16);
+    testcase.f64bits = std.conv.parse!ulong(arr[2], 16);
     testcase.floatString = arr[3];
 }
 
@@ -71,30 +69,35 @@ void main()
 
             auto failure = false;
             import std.exception;
-            try scanLine(line, tc);
+            try
+            {
+                scanLine(line, tc);
+
+                // f32bits
+                string s = tc.floatString;
+                float f32 = parse!float(s);
+                uint f32result = *cast(uint*) &f32;
+                if (tc.f32bits != f32result)
+                {
+                    stderr.writefln(" | float: %s, found %f", line, f32result);
+                    failure = true;
+                }
+
+                // f64bits
+                s = tc.floatString;
+                double f64 = parse!double(s);
+                ulong f64result = *cast(ulong*) &f64;
+                if (tc.f64bits != f64result)
+                {
+                    stderr.writefln(" | double: %s, found %f", line, f64result);
+                    failure = true;
+                }
+            }
             catch (Exception)
             {
                 fail++;
                 count++;
                 continue;
-            }
-
-            // f32bits
-            string s = tc.floatString;
-            double f32result = parse!float(s);
-            if (tc.f32bits != f32result)
-            {
-                // stderr.writefln(" | float: %s, found %f", line, f32result);
-                failure = true;
-            }
-
-            // f64bits
-            s = tc.floatString;
-            double f64result = parse!double(s);
-            if (tc.f64bits != f64result)
-            {
-                // stderr.writefln(" | double: %s, found %f", line, f64result);
-                failure = true;
             }
 
             if (failure) fail++;
