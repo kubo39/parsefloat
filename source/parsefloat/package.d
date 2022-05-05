@@ -182,47 +182,26 @@ if (isInputRange!Source &&
     bool sawDigits;
     ulong nDigits = 0;
 
-    enum { hex, decimal }
-
     // sets msdec, lsdec/msscale, and sawDigits by parsing the mantissa digits
-    void parseDigits(alias FloatFormat)()
+    void parseHexDigits()
     {
-        static if (FloatFormat == hex)
-        {
-            enum uint base = 16;
-            enum ulong msscaleMax = 0x1000_0000_0000_0000UL; // largest power of 16 a ulong holds
-            enum ubyte expIter = 4; // iterate the base-2 exponent by 4 for every hex digit
-            alias checkDigit = isHexDigit;
-            /*
-             * convert letter to binary representation: First clear bit
-             * to convert lower space chars to upperspace, then -('A'-10)
-             * converts letter A to 10, letter B to 11, ...
-             */
-            alias convertDigit = (int x) => isAlpha(x) ? ((x & ~0x20) - ('A' - 10)) : x - '0';
-            sawDigits = false;
-        }
-        else static if (FloatFormat == decimal)
-        {
-            enum uint base = 10;
-            enum ulong msscaleMax = 10_000_000_000_000_000_000UL; // largest power of 10 a ulong holds
-            enum ubyte expIter = 1; // iterate the base-10 exponent once for every decimal digit
-            alias checkDigit = isDigit;
-            alias convertDigit = (int x) => x - '0';
-            // Used to enforce that any mantissa digits are present
-            sawDigits = startsWithZero;
-        }
-        else
-            static assert(false, "Unrecognized floating-point format used.");
+        enum uint base = 16;
+        enum ulong msscaleMax = 0x1000_0000_0000_0000UL; // largest power of 16 a ulong holds
+        enum ubyte expIter = 4; // iterate the base-2 exponent by 4 for every hex digit
+        sawDigits = false;
 
         while (!p.empty)
         {
             int i = p.front;
-            while (checkDigit(i))
+            while (isHexDigit(i))
             {
                 sawDigits = true;        /* must have at least 1 digit   */
-                nDigits++;
-
-                i = convertDigit(i);
+                /*
+                 * convert letter to binary representation: First clear bit
+                 * to convert lower space chars to upperspace, then -('A'-10)
+                 * converts letter A to 10, letter B to 11, ...
+                 */
+                i = isAlpha(i) ? ((i & ~0x20) - ('A' - 10)) : i - '0';
 
                 if (msdec < (ulong.max - base)/base)
                 {
@@ -265,17 +244,129 @@ if (isInputRange!Source &&
 
         // Have we seen any mantissa digits so far?
         enforce(sawDigits, bailOut("no digits seen"));
-        static if (FloatFormat == hex)
-            enforce(!p.empty && (p.front == 'p' || p.front == 'P'),
-                    bailOut("Floating point parsing: exponent is required"));
+        enforce(!p.empty && (p.front == 'p' || p.front == 'P'),
+                bailOut("Floating point parsing: exponent is required"));
+    }
+
+    void parseDecimalDigits()
+    {
+        enum uint base = 10;
+        enum ulong msscaleMax = 10_000_000_000_000_000_000UL; // largest power of 10 a ulong holds
+        enum ubyte expIter = 1; // iterate the base-10 exponent once for every decimal digit
+        alias convertDigit = (int x) => x - '0';
+        // Used to enforce that any mantissa digits are present
+        sawDigits = startsWithZero;
+
+        while (!p.empty)
+        {
+            int i = p.front;
+            while (isDigit(i))
+            {
+                sawDigits = true;        /* must have at least 1 digit   */
+                nDigits++;
+
+                i = i - '0';
+
+                if (msdec < (ulong.max - base)/base)
+                {
+                    // For base 16: Y = ... + y3*16^3 + y2*16^2 + y1*16^1 + y0*16^0
+                    msdec = msdec * base + i;
+                }
+                else if (msscale < msscaleMax)
+                {
+                    lsdec = lsdec * base + i;
+                    msscale *= base;
+                }
+                else
+                {
+                    exp += expIter;
+                }
+                exp -= dot;
+                ++count;
+                p.popFront();
+                if (p.empty)
+                    break;
+                i = p.front;
+                if (i == '_')
+                {
+                    ++count;
+                    p.popFront();
+                    if (p.empty)
+                        break;
+                    i = p.front;
+                }
+            }
+            if (i == '.' && !dot)
+            {
+                ++count;
+                p.popFront();
+                dot += expIter;
+            }
+            else
+                break;
+        }
+
+        // Have we seen any mantissa digits so far?
+        enforce(sawDigits, bailOut("no digits seen"));
     }
 
     if (isHex)
-        parseDigits!hex;
-    else
-        parseDigits!decimal;
+    {
+        parseHexDigits();
 
-    if (isHex || (!p.empty && (p.front == 'e' || p.front == 'E')))
+        char sexp = 0;
+        int e = 0;
+        ++count;
+        p.popFront();
+        enforce(!p.empty, new ConvException("Unexpected end of input"));
+        switch (p.front)
+        {
+            case '-':    sexp++;
+                         goto case;
+            case '+':    ++count;
+                         p.popFront();
+                         break;
+            default: {}
+        }
+        sawDigits = false;
+        while (!p.empty && isDigit(p.front))
+        {
+            if (e < 0x7FFFFFFF / 10 - 10)   // prevent integer overflow
+            {
+                e = e * 10 + p.front - '0';
+            }
+            ++count;
+            p.popFront();
+            sawDigits = true;
+        }
+        exp += (sexp) ? -e : e;
+        enforce(sawDigits, new ConvException("No digits seen."));
+
+        ldval = msdec;
+        if (msscale != 1)               /* if stuff was accumulated in lsdec */
+            ldval = ldval * msscale + lsdec;
+
+        import core.math : ldexp;
+        // Exponent is power of 2, not power of 10
+        ldval = ldexp(ldval, exp);
+
+        // if overflow occurred
+        enforce(ldval != real.infinity, new ConvException("Range error"));
+
+        advanceSource();
+        static if (doCount)
+        {
+            return tuple!("data", "count")(cast (Target) (sign ? -ldval : ldval), count);
+        }
+        else
+        {
+            return cast (Target) (sign ? -ldval : ldval);
+        }
+    }
+
+    parseDecimalDigits();
+
+    if (!p.empty && (p.front == 'e' || p.front == 'E'))
     {
         char sexp = 0;
         int e = 0;
@@ -366,15 +457,7 @@ if (isInputRange!Source &&
     ldval = msdec;
     if (msscale != 1)               /* if stuff was accumulated in lsdec */
         ldval = ldval * msscale + lsdec;
-
-    if (isHex)
-    {
-        import core.math : ldexp;
-
-        // Exponent is power of 2, not power of 10
-        ldval = ldexp(ldval, exp);
-    }
-    else if (ldval)
+    if (ldval)
     {
         uint u = 0;
         int pow = 4096;
