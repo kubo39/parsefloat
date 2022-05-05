@@ -314,6 +314,7 @@ if (isInputRange!Source &&
         bool r = tryFastPath!Target(exp, msdec, value);
         if (r)
         {
+            advanceSource();
             static if (doCount)
             {
                 return tuple!("data", "count")(cast(Target) (sign ? -value : value), count);
@@ -351,6 +352,7 @@ if (isInputRange!Source &&
         word |= cast(ulong)(fp.e) << MANTISSA_EXPLICIT_BITS;
         Target f = *cast(Target*) &word;
 
+        advanceSource();
         static if (doCount)
         {
             return tuple!("data", "count")(cast(Target) (sign ? -f : f), count);
