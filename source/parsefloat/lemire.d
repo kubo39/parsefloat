@@ -2,14 +2,7 @@ module parsefloat.lemire;
 
 import core.int128;
 
-///
-struct BiasedFp
-{
-    /// The significant digit.
-    ulong f;
-    /// The biased, binary exponent.
-    int e;
-}
+import parsefloat.common;
 
 /// Compute a float using an extended-precision representation.
 ///
@@ -29,7 +22,7 @@ struct BiasedFp
 /// at a Gigabyte per Second" in section 5, "Fast Algorithm", and
 /// section 6, "Exact Numbers And Ties", available online:
 /// <https://arxiv.org/abs/2101.11408.pdf>.
-BiasedFp eiselLemire(T)(int q, ulong _w) if (is(T == double) || is(T == float))
+BiasedFp eiselLemire(T)(long q, ulong _w) if (is(T == double) || is(T == float))
 {
     static if (is(T == double))
     {

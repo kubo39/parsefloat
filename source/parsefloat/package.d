@@ -7,7 +7,12 @@ import std.typecons : Flag, Yes, No, tuple;
 
 private import std.conv : ConvException, text;
 
+private import parsefloat.common;
+private import parsefloat.decimal;
 private import parsefloat.lemire;
+private import parsefloat.number;
+private import parsefloat.parse;
+private import parsefloat.slow;
 
 /**
  * Parses a character range to a floating point number.
@@ -46,6 +51,8 @@ if (isInputRange!Source &&
     {
         alias p = source;
     }
+    // for slow path.
+    auto start = p;
 
     void advanceSource()
     {
@@ -62,7 +69,7 @@ if (isInputRange!Source &&
 
     ConvException bailOut()(string msg = null, string fn = __FILE__, size_t ln = __LINE__)
     {
-        if (msg == null)
+        if (msg is null)
             msg = "Floating point conversion error";
         return new ConvException(text(msg, " for input \"", source, "\"."), fn, ln);
     }
@@ -113,6 +120,7 @@ if (isInputRange!Source &&
 
     bool isHex = false;
     bool startsWithZero = p.front == '0';
+    auto zeroStart = p;
     if (startsWithZero)
     {
         ++count;
@@ -180,7 +188,6 @@ if (isInputRange!Source &&
     ulong msdec = 0, lsdec = 0;
     ulong msscale = 1;
     bool sawDigits;
-    ulong nDigits = 0;
 
     // sets msdec, lsdec/msscale, and sawDigits by parsing the mantissa digits
     void parseHexDigits()
@@ -248,68 +255,6 @@ if (isInputRange!Source &&
                 bailOut("Floating point parsing: exponent is required"));
     }
 
-    void parseDecimalDigits()
-    {
-        enum uint base = 10;
-        enum ulong msscaleMax = 10_000_000_000_000_000_000UL; // largest power of 10 a ulong holds
-        enum ubyte expIter = 1; // iterate the base-10 exponent once for every decimal digit
-        alias convertDigit = (int x) => x - '0';
-        // Used to enforce that any mantissa digits are present
-        sawDigits = startsWithZero;
-
-        while (!p.empty)
-        {
-            int i = p.front;
-            while (isDigit(i))
-            {
-                sawDigits = true;        /* must have at least 1 digit   */
-                nDigits++;
-
-                i = i - '0';
-
-                if (msdec < (ulong.max - base)/base)
-                {
-                    // For base 16: Y = ... + y3*16^3 + y2*16^2 + y1*16^1 + y0*16^0
-                    msdec = msdec * base + i;
-                }
-                else if (msscale < msscaleMax)
-                {
-                    lsdec = lsdec * base + i;
-                    msscale *= base;
-                }
-                else
-                {
-                    exp += expIter;
-                }
-                exp -= dot;
-                ++count;
-                p.popFront();
-                if (p.empty)
-                    break;
-                i = p.front;
-                if (i == '_')
-                {
-                    ++count;
-                    p.popFront();
-                    if (p.empty)
-                        break;
-                    i = p.front;
-                }
-            }
-            if (i == '.' && !dot)
-            {
-                ++count;
-                p.popFront();
-                dot += expIter;
-            }
-            else
-                break;
-        }
-
-        // Have we seen any mantissa digits so far?
-        enforce(sawDigits, bailOut("no digits seen"));
-    }
-
     if (isHex)
     {
         parseHexDigits();
@@ -364,56 +309,25 @@ if (isInputRange!Source &&
         }
     }
 
-    parseDecimalDigits();
-
-    if (!p.empty && (p.front == 'e' || p.front == 'E'))
+    if (startsWithZero)
     {
-        char sexp = 0;
-        int e = 0;
-
-        ++count;
-        p.popFront();
-        enforce(!p.empty, new ConvException("Unexpected end of input"));
-        switch (p.front)
-        {
-            case '-':    sexp++;
-                         goto case;
-            case '+':    ++count;
-                         p.popFront();
-                         break;
-            default: {}
-        }
-        sawDigits = false;
-        while (!p.empty && isDigit(p.front))
-        {
-            if (e < 0x7FFFFFFF / 10 - 10)   // prevent integer overflow
-            {
-                e = e * 10 + p.front - '0';
-            }
-            ++count;
-            p.popFront();
-            sawDigits = true;
-        }
-        exp += (sexp) ? -e : e;
-        enforce(sawDigits, new ConvException("No digits seen."));
+        p = zeroStart;
+        count--;
     }
+    Number number = { exponent: 0, mantissa: 0, manyDigits: false, count: count };
+    enforce(parseNumber(p, number), new ConvException("Failed to parse"));
 
-    bool manyDigits = nDigits > 19;
-    if (!manyDigits)
+    Target value;
+    if (tryFastPath!Target(number, value))
     {
-        Target value;
-        bool r = tryFastPath!Target(exp, msdec, value);
-        if (r)
+        advanceSource();
+        static if (doCount)
         {
-            advanceSource();
-            static if (doCount)
-            {
-                return tuple!("data", "count")(cast(Target) (sign ? -value : value), count);
-            }
-            else
-            {
-                return cast(Target) (sign ? -value : value);
-            }
+            return tuple!("data", "count")(sign ? -value : value, number.count);
+        }
+        else
+        {
+            return sign ? -value : value;
         }
     }
 
@@ -421,198 +335,37 @@ if (isInputRange!Source &&
     // only if `mantissa + 1` produces a different result. We also avoid
     // redundantly using the Eisel-Lemire algorithm if it was unable to
     // correctly round on the first pass.
-    auto fp = eiselLemire!Target(exp, msdec);
-    if (manyDigits && fp.e >= 0 && fp != eiselLemire!Target(exp, msdec + 1))
+    auto fp = eiselLemire!Target(number.exponent, number.mantissa);
+    if (number.manyDigits && fp.e >= 0 && fp != eiselLemire!Target(number.exponent, number.mantissa + 1))
     {
         fp.e = -1;
     }
     // Unable to correctly round the float using the Eisel-Lemire algorithm.
-    if (fp.e < 0) {}
-    else
+    // Fallback to a slower, but always correct algorithm.
+    if (fp.e < 0)
     {
-        /// Converts a `BiasedFp` to the closest machine float type.
-        static if (is(Target == double))
-        {
-            size_t MANTISSA_EXPLICIT_BITS = 52;
-        }
-        else static if (is(Target == float))
-        {
-            size_t MANTISSA_EXPLICIT_BITS = 23;
-        }
-        auto word = fp.f;
-        word |= cast(ulong)(fp.e) << MANTISSA_EXPLICIT_BITS;
-        Target f = *cast(Target*) &word;
-
-        advanceSource();
-        static if (doCount)
-        {
-            return tuple!("data", "count")(cast(Target) (sign ? -f : f), count);
-        }
-        else
-        {
-            return cast(Target) (sign ? -f : f);
-        }
+        fp = parseLongMantissa!Target(start);
     }
-
-    ldval = msdec;
-    if (msscale != 1)               /* if stuff was accumulated in lsdec */
-        ldval = ldval * msscale + lsdec;
-    if (ldval)
-    {
-        uint u = 0;
-        int pow = 4096;
-
-        while (exp > 0)
-        {
-            while (exp >= pow)
-            {
-                ldval *= postab[u];
-                exp -= pow;
-            }
-            pow >>= 1;
-            u++;
-        }
-        while (exp < 0)
-        {
-            while (exp <= -pow)
-            {
-                ldval *= negtab[u];
-                enforce(ldval != 0, new ConvException("Range error"));
-                exp += pow;
-            }
-            pow >>= 1;
-            u++;
-        }
-    }
-
+    /// Converts a `BiasedFp` to the closest machine float type.
+    Target f = biasedFpToFloat!Target(fp);
     // if overflow occurred
-    enforce(ldval != real.infinity, new ConvException("Range error"));
+    // enforce(f != real.infinity, new ConvException("Range error"));
 
     advanceSource();
     static if (doCount)
     {
-        return tuple!("data", "count")(cast (Target) (sign ? -ldval : ldval), count);
+        return tuple!("data", "count")(sign ? -f : f, number.count);
     }
     else
     {
-        return cast (Target) (sign ? -ldval : ldval);
+        return sign ? -f : f;
     }
 }
 
 private:
 
-/// Detect if the float can be accurately reconstructed from native floats.
-bool isFastPath(Target)(long exp, ulong mantissa)
-if (is(Target == float) || is(Target == double))
-{
-    static if (is(Target == float))
-    {
-        long MIN_EXPONENT_FAST_PATH = -10; // assuming FLT_EVAL_METHOD = 0
-        long MAX_EXPONENT_DISGUISED_FAST_PATH;
-        size_t MANTISSA_EXPLICIT_BITS = 23;
-    }
-    else static if (is(Target == double))
-    {
-        long MIN_EXPONENT_FAST_PATH = -22; // assuming FLT_EVAL_METHOD = 0
-        long MAX_EXPONENT_DISGUISED_FAST_PATH = 37;
-        size_t MANTISSA_EXPLICIT_BITS = 52;
-    }
-    ulong MAX_MANTISSA_FAST_PATH = 2UL << MANTISSA_EXPLICIT_BITS;
-    return MIN_EXPONENT_FAST_PATH <= exp
-        && exp <= MAX_EXPONENT_DISGUISED_FAST_PATH
-        && mantissa <= MAX_MANTISSA_FAST_PATH;
-}
-
-immutable ulong[16] INT_POW10 = [
-    1,
-    10,
-    100,
-    1000,
-    10000,
-    100000,
-    1000000,
-    10000000,
-    100000000,
-    1000000000,
-    10000000000,
-    100000000000,
-    1000000000000,
-    10000000000000,
-    100000000000000,
-    1000000000000000
-];
-
-T pow10FastPath(T)(size_t exp) if (is(T == float))
-{
-    static float[16] TABLE =
-        [1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7,
-         1e8, 1e9, 1e10, 0.0, 0.0, 0.0, 0.0, 0.0];
-    return TABLE[exp & 15];
-}
-
-T pow10FastPath(T)(size_t exp) if (is(T == double))
-{
-    static double[32] TABLE = [
-        1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7,
-        1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15,
-        1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22, 0.0,
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-    return TABLE[exp & 31];
-}
-
-/// The fast path algorithm using machine-sized integers and floats.
-///
-/// This is extracted into a separate function so that it can be attempted before constructing
-/// a Decimal. This only works if both the mantissa and the exponent
-/// can be exactly represented as a machine float, since IEE-754 guarantees
-/// no rounding will occur.
-///
-/// There is an exception: disguised fast-path cases, where we can shift
-/// powers-of-10 from the exponent to the significant digits.
-bool tryFastPath(Target)(long exp, ulong _mantissa, ref Target value)
-if (is(Target == float) || is(Target == double))
-{
-    static if (is(Target == float))
-    {
-        enum size_t MANTISSA_EXPLICIT_BITS = 23;
-        enum long MAX_EXPONENT_FAST_PATH = 10;
-        enum ulong MAX_MANTISSA_FAST_PATH = 2UL << MANTISSA_EXPLICIT_BITS;
-    }
-    else static if (is(Target == double))
-    {
-        enum size_t MANTISSA_EXPLICIT_BITS = 52;
-        enum long MAX_EXPONENT_FAST_PATH = 22;
-        enum ulong MAX_MANTISSA_FAST_PATH = 2UL << MANTISSA_EXPLICIT_BITS;
-    }
-
-    // TODO: x86 (no SSE/SSE2) requires x87 FPU to be setup correctly with fldcw
-
-    if (!isFastPath!(Target)(exp, _mantissa))
-        return false;
-
-    if (exp <= MAX_EXPONENT_FAST_PATH)
-    {
-        // normal fast path
-        assert(_mantissa <= MAX_MANTISSA_FAST_PATH);
-        value = cast(Target) _mantissa;
-        if (exp < 0)
-            value = value / pow10FastPath!Target(-exp);
-        else
-            value = value * pow10FastPath!Target(exp);
-    }
-    else
-    {
-        // disguised fast path
-        const shift = exp - MAX_EXPONENT_FAST_PATH;
-        const mantissa = _mantissa * INT_POW10[shift];
-        if (mantissa > MAX_MANTISSA_FAST_PATH)
-            return false;
-        value = cast(Target) mantissa * pow10FastPath!Target(MAX_EXPONENT_FAST_PATH);
-    }
-    return true;
-}
-
-T biasedFpToFloat(T)(BiasedFp x) if (is(T == float) || is(T == double))
+T biasedFpToFloat(T)(BiasedFp x)
+if (is(T == float) || is(T == double))
 {
     static if (is(T == float))
     {
@@ -623,7 +376,7 @@ T biasedFpToFloat(T)(BiasedFp x) if (is(T == float) || is(T == double))
         size_t MANTISSA_EXPLICIT_BITS = 52;
     }
     auto word = x.f;
-    word |= x.e << MANTISSA_EXPLICIT_BITS;
+    word |= (cast(ulong) x.e) << MANTISSA_EXPLICIT_BITS;
     return *cast(T*) &word;
 }
 
