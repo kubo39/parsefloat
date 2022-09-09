@@ -350,17 +350,20 @@ if (isInputRange!Source &&
         // Exponent is power of 2, not power of 10
         ldval = ldexp(ldval, exp);
 
+        Target result = cast (Target) (sign ? -ldval : ldval);
+
         // if overflow occurred
-        enforce(ldval != real.infinity, new ConvException("Range error"));
+        import std.math : isFinite;
+        enforce(isFinite(result), new ConvException("Range error"));
 
         advanceSource();
         static if (doCount)
         {
-            return tuple!("data", "count")(cast (Target) (sign ? -ldval : ldval), count);
+            return tuple!("data", "count")(result, count);
         }
         else
         {
-            return cast (Target) (sign ? -ldval : ldval);
+            return result;
         }
     }
 
@@ -405,14 +408,15 @@ if (isInputRange!Source &&
         bool r = tryFastPath!Target(exp, msdec, value);
         if (r)
         {
+            Target result = cast(Target) (sign ? -value : value);
             advanceSource();
             static if (doCount)
             {
-                return tuple!("data", "count")(cast(Target) (sign ? -value : value), count);
+                return tuple!("data", "count")(result, count);
             }
             else
             {
-                return cast(Target) (sign ? -value : value);
+                return result;
             }
         }
     }
@@ -441,16 +445,17 @@ if (isInputRange!Source &&
         }
         auto word = fp.f;
         word |= cast(ulong)(fp.e) << MANTISSA_EXPLICIT_BITS;
-        Target f = *cast(Target*) &word;
+
+        Target f = sign ? - *cast(Target*) &word : *cast(Target*) &word;
 
         advanceSource();
         static if (doCount)
         {
-            return tuple!("data", "count")(cast(Target) (sign ? -f : f), count);
+            return tuple!("data", "count")(f, count);
         }
         else
         {
-            return cast(Target) (sign ? -f : f);
+            return cast(Target) f;
         }
     }
 
@@ -485,17 +490,20 @@ if (isInputRange!Source &&
         }
     }
 
+    Target result = cast (Target) (sign ? -ldval : ldval);
+
     // if overflow occurred
-    enforce(ldval != real.infinity, new ConvException("Range error"));
+    import std.math : isFinite;
+    enforce(isFinite(result), new ConvException("Range error"));
 
     advanceSource();
     static if (doCount)
     {
-        return tuple!("data", "count")(cast (Target) (sign ? -ldval : ldval), count);
+        return tuple!("data", "count")(result, count);
     }
     else
     {
-        return cast (Target) (sign ? -ldval : ldval);
+        return result;
     }
 }
 
