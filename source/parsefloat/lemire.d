@@ -209,7 +209,7 @@ ulong lzcnt(ulong w)
     version (LDC)
     {
         import ldc.intrinsics;
-        return llvm_ctlz(w);
+        return llvm_ctlz(w, false);
     }
     else
     {

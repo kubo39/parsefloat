@@ -516,7 +516,7 @@ if (is(Target == float) || is(Target == double))
     static if (is(Target == float))
     {
         long MIN_EXPONENT_FAST_PATH = -10; // assuming FLT_EVAL_METHOD = 0
-        long MAX_EXPONENT_DISGUISED_FAST_PATH;
+        long MAX_EXPONENT_DISGUISED_FAST_PATH = 17;
         size_t MANTISSA_EXPLICIT_BITS = 23;
     }
     else static if (is(Target == double))
@@ -620,21 +620,6 @@ if (is(Target == float) || is(Target == double))
     return true;
 }
 
-T biasedFpToFloat(T)(BiasedFp x) if (is(T == float) || is(T == double))
-{
-    static if (is(T == float))
-    {
-        size_t MANTISSA_EXPLICIT_BITS = 23;
-    }
-    else static if (is(T == double))
-    {
-        size_t MANTISSA_EXPLICIT_BITS = 52;
-    }
-    auto word = x.f;
-    word |= x.e << MANTISSA_EXPLICIT_BITS;
-    return *cast(T*) &word;
-}
-
 
 ///
 unittest
@@ -670,14 +655,12 @@ unittest
     // assert(isNaN(r3.data) && r3.count == 3);
 }
 
-/+
 unittest
 {
     import std.exception;
-    import std.math.traits : isNaN, isInfinity;
+    import std.math.traits : isNaN;
     import std.math.algebraic : fabs;
 
-    // Compare reals with given precision
     bool feq(in real rx, in real ry, in real precision = 0.000001L)
     {
         if (rx == ry)
@@ -692,256 +675,52 @@ unittest
         return cast(bool)(fabs(rx - ry) <= precision);
     }
 
-    // Make given typed literal
+    T toFloat(T)(string s)
+    {
+        return parse!T(s);
+    }
+
     F Literal(F)(F f)
     {
         return f;
     }
 
-    static foreach (Float; AliasSeq!(float, double, real))
+    static foreach (Float; AliasSeq!(float, double))
     {
-        assert(to!Float("123") == Literal!Float(123));
-        assert(to!Float("+123") == Literal!Float(+123));
-        assert(to!Float("-123") == Literal!Float(-123));
-        assert(to!Float("123e2") == Literal!Float(123e2));
-        assert(to!Float("123e+2") == Literal!Float(123e+2));
-        assert(to!Float("123e-2") == Literal!Float(123e-2L));
-        assert(to!Float("123.") == Literal!Float(123.0));
-        assert(to!Float(".375") == Literal!Float(.375));
+        assert(toFloat!Float("123") == Literal!Float(123));
+        assert(toFloat!Float("+123") == Literal!Float(+123));
+        assert(toFloat!Float("-123") == Literal!Float(-123));
+        assert(toFloat!Float("123e2") == Literal!Float(123e2));
+        assert(toFloat!Float("123e+2") == Literal!Float(123e+2));
+        assert(toFloat!Float("123e-2") == Literal!Float(123e-2L));
+        assert(toFloat!Float("123.") == Literal!Float(123.0));
+        assert(toFloat!Float(".375") == Literal!Float(.375));
 
-        assert(to!Float("1.23375E+2") == Literal!Float(1.23375E+2));
+        assert(toFloat!Float("1.23375E+2") == Literal!Float(1.23375E+2));
 
-        assert(to!Float("0") is 0.0);
-        assert(to!Float("-0") is -0.0);
+        assert(toFloat!Float("0") is 0.0);
+        assert(toFloat!Float("-0") is -0.0);
 
-        assert(isNaN(to!Float("nan")));
+        assert(isNaN(toFloat!Float("nan")));
 
-        assertThrown!ConvException(to!Float("\x00"));
+        assertThrown!ConvException(toFloat!Float("\x00"));
     }
 
-    // min and max
-    float f = to!float("1.17549e-38");
+    // float min and max
+    float f = toFloat!float("1.17549e-38");
     assert(feq(cast(real) f, cast(real) 1.17549e-38));
     assert(feq(cast(real) f, cast(real) float.min_normal));
-    f = to!float("3.40282e+38");
-    assert(to!string(f) == to!string(3.40282e+38));
+    f = toFloat!float("3.40282e+38");
+    static import std.conv;
+    assert(std.conv.to!string(f) == std.conv.to!string(3.40282e+38));
 
-    // min and max
-    double d = to!double("2.22508e-308");
+    // double min and max
+    double d = toFloat!double("2.22508e-308");
     assert(feq(cast(real) d, cast(real) 2.22508e-308));
     assert(feq(cast(real) d, cast(real) double.min_normal));
-    d = to!double("1.79769e+308");
-    assert(to!string(d) == to!string(1.79769e+308));
-    assert(to!string(d) == to!string(double.max));
-
-    auto z = real.max / 2L;
-    static assert(is(typeof(z) == real));
-    assert(!isNaN(z));
-    assert(!isInfinity(z));
-    string a = to!string(z);
-    real b = to!real(a);
-    string c = to!string(b);
-
-    assert(c == a, "\n" ~ c ~ "\n" ~ a);
-
-    assert(to!string(to!real(to!string(real.max / 2L))) == to!string(real.max / 2L));
-
-    // min and max
-    real r = to!real(to!string(real.min_normal));
-    version (NetBSD)
-    {
-        // NetBSD notice
-        // to!string returns 3.3621e-4932L. It is less than real.min_normal and it is subnormal value
-        // Simple C code
-        //     long double rd = 3.3621e-4932L;
-        //     printf("%Le\n", rd);
-        // has unexpected result: 1.681050e-4932
-        //
-        // Bug report: http://gnats.netbsd.org/cgi-bin/query-pr-single.pl?number=50937
-    }
-    else
-    {
-        assert(to!string(r) == to!string(real.min_normal));
-    }
-    r = to!real(to!string(real.max));
-    assert(to!string(r) == to!string(real.max));
-
-    real pi = 3.1415926535897932384626433832795028841971693993751L;
-    string fullPrecision = "3.1415926535897932384626433832795028841971693993751";
-    assert(feq(parse!real(fullPrecision), pi, 2*real.epsilon));
-    string fullPrecision2 = "3.1415926535897932384626433832795028841971693993751";
-    assert(feq(parse!(real, string, No.doCount)(fullPrecision2), pi, 2*real.epsilon));
-    string fullPrecision3= "3.1415926535897932384626433832795028841971693993751";
-    auto len = fullPrecision3.length;
-    auto res = parse!(real, string, Yes.doCount)(fullPrecision3);
-    assert(feq(res.data, pi, 2*real.epsilon));
-    assert(res.count == len);
-
-    real x = 0x1.FAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAAFAAFAFAFAFAFAFAFAP-252L;
-    string full = "0x1.FAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAAFAAFAFAFAFAFAFAFAP-252";
-    assert(parse!real(full) == x);
-    string full2 = "0x1.FAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAAFAAFAFAFAFAFAFAFAP-252";
-    assert(parse!(real, string, No.doCount)(full2) == x);
-    string full3 = "0x1.FAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAAFAAFAFAFAFAFAFAFAP-252";
-    auto len2 = full3.length;
-    assert(parse!(real, string, Yes.doCount)(full3) == tuple(x, len2));
-}
-
-// Tests for the double implementation
-@system unittest
-{
-    // @system because strtod is not @safe.
-    import std.math : floatTraits, RealFormat;
-
-    static if (floatTraits!real.realFormat == RealFormat.ieeeDouble)
-    {
-        import core.stdc.stdlib, std.exception, std.math;
-
-        //Should be parsed exactly: 53 bit mantissa
-        string s = "0x1A_BCDE_F012_3456p10";
-        auto x = parse!real(s);
-        assert(x == 0x1A_BCDE_F012_3456p10L);
-        //1 bit is implicit
-        assert(((*cast(ulong*)&x) & 0x000F_FFFF_FFFF_FFFF) == 0xA_BCDE_F012_3456);
-        assert(strtod("0x1ABCDEF0123456p10", null) == x);
-
-        s = "0x1A_BCDE_F012_3456p10";
-        auto len = s.length;
-        assert(parse!(real, string, Yes.doCount)(s) == tuple(x, len));
-
-        //Should be parsed exactly: 10 bit mantissa
-        s = "0x3FFp10";
-        x = parse!real(s);
-        assert(x == 0x03FFp10);
-        //1 bit is implicit
-        assert(((*cast(ulong*)&x) & 0x000F_FFFF_FFFF_FFFF) == 0x000F_F800_0000_0000);
-        assert(strtod("0x3FFp10", null) == x);
-
-        //60 bit mantissa, round up
-        s = "0xFFF_FFFF_FFFF_FFFFp10";
-        x = parse!real(s);
-        assert(isClose(x, 0xFFF_FFFF_FFFF_FFFFp10));
-        //1 bit is implicit
-        assert(((*cast(ulong*)&x) & 0x000F_FFFF_FFFF_FFFF) == 0x0000_0000_0000_0000);
-        assert(strtod("0xFFFFFFFFFFFFFFFp10", null) == x);
-
-        //60 bit mantissa, round down
-        s = "0xFFF_FFFF_FFFF_FF90p10";
-        x = parse!real(s);
-        assert(isClose(x, 0xFFF_FFFF_FFFF_FF90p10));
-        //1 bit is implicit
-        assert(((*cast(ulong*)&x) & 0x000F_FFFF_FFFF_FFFF) == 0x000F_FFFF_FFFF_FFFF);
-        assert(strtod("0xFFFFFFFFFFFFF90p10", null) == x);
-
-        //61 bit mantissa, round up 2
-        s = "0x1F0F_FFFF_FFFF_FFFFp10";
-        x = parse!real(s);
-        assert(isClose(x, 0x1F0F_FFFF_FFFF_FFFFp10));
-        //1 bit is implicit
-        assert(((*cast(ulong*)&x) & 0x000F_FFFF_FFFF_FFFF) == 0x000F_1000_0000_0000);
-        assert(strtod("0x1F0FFFFFFFFFFFFFp10", null) == x);
-
-        //61 bit mantissa, round down 2
-        s = "0x1F0F_FFFF_FFFF_FF10p10";
-        x = parse!real(s);
-        assert(isClose(x, 0x1F0F_FFFF_FFFF_FF10p10));
-        //1 bit is implicit
-        assert(((*cast(ulong*)&x) & 0x000F_FFFF_FFFF_FFFF) == 0x000F_0FFF_FFFF_FFFF);
-        assert(strtod("0x1F0FFFFFFFFFFF10p10", null) == x);
-
-        //Huge exponent
-        s = "0x1F_FFFF_FFFF_FFFFp900";
-        x = parse!real(s);
-        assert(strtod("0x1FFFFFFFFFFFFFp900", null) == x);
-
-        //exponent too big -> converror
-        s = "";
-        assertThrown!ConvException(x = parse!real(s));
-        assert(strtod("0x1FFFFFFFFFFFFFp1024", null) == real.infinity);
-
-        //-exponent too big -> 0
-        s = "0x1FFFFFFFFFFFFFp-2000";
-        x = parse!real(s);
-        assert(x == 0);
-        assert(strtod("0x1FFFFFFFFFFFFFp-2000", null) == x);
-
-        s = "0x1FFFFFFFFFFFFFp-2000";
-        len = s.length;
-        assert(parse!(real, string, Yes.doCount)(s) == tuple(x, len));
-    }
-}
-
-@system unittest
-{
-    import core.stdc.errno;
-    import core.stdc.stdlib;
-    import std.math : floatTraits, RealFormat;
-
-    errno = 0;  // In case it was set by another unittest in a different module.
-    struct longdouble
-    {
-        static if (floatTraits!real.realFormat == RealFormat.ieeeQuadruple)
-        {
-            ushort[8] value;
-        }
-        else static if (floatTraits!real.realFormat == RealFormat.ieeeExtended ||
-                        floatTraits!real.realFormat == RealFormat.ieeeExtended53)
-        {
-            ushort[5] value;
-        }
-        else static if (floatTraits!real.realFormat == RealFormat.ieeeDouble)
-        {
-            ushort[4] value;
-        }
-        else
-            static assert(false, "Not implemented");
-    }
-
-    real ld;
-    longdouble x;
-    real ld1;
-    longdouble x1;
-    int i;
-
-    static if (floatTraits!real.realFormat == RealFormat.ieeeQuadruple)
-        enum s = "0x1.FFFFFFFFFFFFFFFFFFFFFFFFFFFFp-16382";
-    else static if (floatTraits!real.realFormat == RealFormat.ieeeExtended)
-        enum s = "0x1.FFFFFFFFFFFFFFFEp-16382";
-    else static if (floatTraits!real.realFormat == RealFormat.ieeeExtended53)
-        enum s = "0x1.FFFFFFFFFFFFFFFEp-16382";
-    else static if (floatTraits!real.realFormat == RealFormat.ieeeDouble)
-        enum s = "0x1.FFFFFFFFFFFFFFFEp-1000";
-    else
-        static assert(false, "Floating point format for real not supported");
-
-    auto s2 = s.idup;
-    ld = parse!real(s2);
-    assert(s2.empty);
-    x = *cast(longdouble *)&ld;
-
-    static if (floatTraits!real.realFormat == RealFormat.ieeeExtended)
-    {
-        version (CRuntime_Microsoft)
-            ld1 = 0x1.FFFFFFFFFFFFFFFEp-16382L; // strtold currently mapped to strtod
-        else
-            ld1 = strtold(s.ptr, null);
-    }
-    else static if (floatTraits!real.realFormat == RealFormat.ieeeExtended53)
-        ld1 = 0x1.FFFFFFFFFFFFFFFEp-16382L; // strtold rounds to 53 bits.
-    else
-        ld1 = strtold(s.ptr, null);
-
-    x1 = *cast(longdouble *)&ld1;
-    assert(x1 == x && ld1 == ld);
-
-    assert(!errno);
-
-    s2 = "1.0e5";
-    ld = parse!real(s2);
-    assert(s2.empty);
-    x = *cast(longdouble *)&ld;
-    ld1 = strtold("1.0e5", null);
-    x1 = *cast(longdouble *)&ld1;
+    d = toFloat!double("1.79769e+308");
+    assert(std.conv.to!string(d) == std.conv.to!string(1.79769e+308));
+    assert(std.conv.to!string(d) == std.conv.to!string(double.max));
 }
 
 unittest
@@ -962,20 +741,30 @@ unittest
         assert(x == tuple(0.0, 1));
     }
 
+    T toFloat(T)(string s)
+    {
+        return parse!T(s);
+    }
+
     // https://issues.dlang.org/show_bug.cgi?id=3369
-    assert(to!float("inf") == float.infinity);
-    assert(to!float("-inf") == -float.infinity);
+    assert(toFloat!float("inf") == float.infinity);
+    assert(toFloat!float("-inf") == -float.infinity);
 
     // https://issues.dlang.org/show_bug.cgi?id=6160
-    assert(6_5.536e3L == to!real("6_5.536e3"));                     // 2^16
-    assert(0x1000_000_000_p10 == to!real("0x1000_000_000_p10"));    // 7.03687e+13
+    assert(6_5.536e3L == cast(real) toFloat!double("6_5.536e3"));
 
     // https://issues.dlang.org/show_bug.cgi?id=6258
-    assertThrown!ConvException(to!real("-"));
-    assertThrown!ConvException(to!real("in"));
+    assertThrown!ConvException(toFloat!double("-"));
+    assertThrown!ConvException(toFloat!double("in"));
 
     // https://issues.dlang.org/show_bug.cgi?id=7055
-    assertThrown!ConvException(to!float("INF2"));
+    // parse consumes "INF" and leaves "2"; to!float would throw
+    {
+        import std.math.traits : isInfinity;
+        auto s7055 = "INF2";
+        assert(isInfinity(parse!float(s7055)));
+        assert(s7055 == "2");
+    }
 
     //extra stress testing
     auto ssOK    = ["1.", "1.1.1", "1.e5", "2e1e", "2a", "2e1_1", "3.4_",
@@ -988,4 +777,3 @@ unittest
     foreach (s; ssKO)
         assertThrown!ConvException(parse!double(s));
 }
-+/

@@ -30,18 +30,18 @@ void scanLine(string line, ref TestCase testcase)
 void main()
 {
     string[] fileList = [
-        // "../parse-number-fxx-test-data/data/freetype-2-7.txt",
-        // "../parse-number-fxx-test-data/data/google-double-conversion.txt",
-        // "../parse-number-fxx-test-data/data/google-wuffs.txt",
-        // "../parse-number-fxx-test-data/data/ibm-fpgen.txt",
+        "../parse-number-fxx-test-data/data/freetype-2-7.txt",
+        "../parse-number-fxx-test-data/data/google-double-conversion.txt",
+        "../parse-number-fxx-test-data/data/google-wuffs.txt",
+        "../parse-number-fxx-test-data/data/ibm-fpgen.txt",
         "../parse-number-fxx-test-data/data/lemire-fast-double-parser.txt",
-        // "../parse-number-fxx-test-data/data/more-test-cases.txt",
-        // "../parse-number-fxx-test-data/data/remyoudompheng-fptest-0.txt",
-        // "../parse-number-fxx-test-data/data/remyoudompheng-fptest-1.txt",
-        // "../parse-number-fxx-test-data/data/remyoudompheng-fptest-2.txt",
-        // "../parse-number-fxx-test-data/data/remyoudompheng-fptest-3.txt",
-        // "../parse-number-fxx-test-data/data/tencent-rapidjson.txt",
-        // "../parse-number-fxx-test-data/data/ulfjack-ryu.txt"
+        "../parse-number-fxx-test-data/data/more-test-cases.txt",
+        "../parse-number-fxx-test-data/data/remyoudompheng-fptest-0.txt",
+        "../parse-number-fxx-test-data/data/remyoudompheng-fptest-1.txt",
+        "../parse-number-fxx-test-data/data/remyoudompheng-fptest-2.txt",
+        "../parse-number-fxx-test-data/data/remyoudompheng-fptest-3.txt",
+        "../parse-number-fxx-test-data/data/tencent-rapidjson.txt",
+        "../parse-number-fxx-test-data/data/ulfjack-ryu.txt"
         ];
 
     // pre-open all files to confirm they exist
